@@ -115,4 +115,4 @@ Health check endpoint.
 - Cultural and relationship-appropriate communication
 - Natural language that matches business conventions
 - Korean honorifics and formality handling
-- Professional English appropriate for international business
+- Professional English appropriate for international business# bnemadie
