@@ -23,7 +23,7 @@
 4. **환경 변수 설정**
    - "Environment" 탭에서 추가:
    ```
-   ANTHROPIC_API_KEY=sk-8cc807dc5a14ce42044ca0a7917b11d8947e11ab366ad8b3b3f8f5e863dd8576
+   ANTHROPIC_API_KEY=
    ANTHROPIC_BASE_URL=https://aiapiflow.com
    NODE_ENV=production
    ```
