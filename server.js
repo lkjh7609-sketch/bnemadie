@@ -426,7 +426,7 @@ fastify.post('/api/email/reply', async (request, reply) => {
 
 fastify.post('/api/email/grammar', async (request, reply) => {
   try {
-    const { input } = request.body
+    const { input, outputLang = 'korean' } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -436,7 +436,8 @@ fastify.post('/api/email/grammar', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    const userPrompt = `Check and improve the grammar, spelling, and style of the following English email. Make it sound natural and professional for business communication. Keep the original and improved email in English, but write every explanation in Korean.\n\nOriginal Email:\n${input}\n\nReturn only valid JSON with these fields:\n- "original": the original text\n- "improved": the corrected version\n- "changes": an array of objects with "before", "after", and "explanation" for each significant change`
+    const targetLanguage = languageName(outputLang)
+    const userPrompt = `Check and improve the grammar, spelling, and style of the following email. Make it sound natural and professional for business communication. Keep the original text unchanged, but write the improved version and all explanations in ${targetLanguage}.\n\nOriginal Email:\n${input}\n\nReturn only valid JSON with these fields:\n- "original": the original text\n- "improved": the corrected version in ${targetLanguage}\n- "changes": an array of objects with "before", "after", and "explanation" in ${targetLanguage} for each significant change`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
@@ -471,7 +472,7 @@ fastify.post('/api/email/grammar', async (request, reply) => {
 
 fastify.post('/api/email/summarize', async (request, reply) => {
   try {
-    const { input } = request.body
+    const { input, outputLang = 'korean' } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -481,7 +482,8 @@ fastify.post('/api/email/summarize', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    const userPrompt = `Analyze and summarize the following email. Extract key information. Write all summaries, points, action items, deadlines, and tone descriptions in Korean.\n\nEmail:\n${input}\n\nReturn only valid JSON with these fields:\n- "summary": brief summary of the email in Korean\n- "keyPoints": array of main points in Korean\n- "actionItems": array of action items or requests in Korean\n- "deadline": deadline if mentioned (or null)\n- "tone": the tone of the email, described in Korean`
+    const targetLanguage = languageName(outputLang)
+    const userPrompt = `Analyze and summarize the following email. Extract key information. Write all generated text in ${targetLanguage}.\n\nEmail:\n${input}\n\nReturn only valid JSON with these fields:\n- "summary": brief summary of the email in ${targetLanguage}\n- "keyPoints": array of main points in ${targetLanguage}\n- "actionItems": array of action items or requests in ${targetLanguage}\n- "deadline": deadline if mentioned (or null)\n- "tone": the tone of the email, described in ${targetLanguage}`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
@@ -517,7 +519,7 @@ fastify.post('/api/email/summarize', async (request, reply) => {
 
 fastify.post('/api/email/regenerate', async (request, reply) => {
   try {
-    const { content, tone } = request.body
+    const { content, tone, outputLang = 'korean' } = request.body
 
     if (!content || typeof content !== 'string') {
       return reply.code(400).send({ error: 'Invalid content' })
@@ -527,7 +529,8 @@ fastify.post('/api/email/regenerate', async (request, reply) => {
       return reply.code(400).send({ error: 'Content too long' })
     }
 
-    const userPrompt = `Please rewrite the following email with a ${tone} tone. Keep the core message the same but adjust the tone appropriately. Write the rewritten subject and content in the requested tone. If the output is not Korean, also return a faithful Korean translation of the complete email body.\n\nOriginal Email:\n${content}\n\nReturn only valid JSON with "subject", "content", and "koreanTranslation" fields. Set "koreanTranslation" to null when the content is Korean.`
+    const targetLanguage = languageName(outputLang)
+    const userPrompt = `Please rewrite the following email with a ${tone} tone. Keep the core message the same but adjust the tone appropriately. Write the rewritten subject and content in ${targetLanguage}. If the output is not Korean, also return a faithful Korean translation of the complete email body.\n\nOriginal Email:\n${content}\n\nReturn only valid JSON with "subject", "content", and "koreanTranslation" fields. Set "koreanTranslation" to null when the content is Korean.`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
@@ -561,7 +564,7 @@ fastify.post('/api/email/regenerate', async (request, reply) => {
 
 fastify.post('/api/email/auto-detect', async (request, reply) => {
   try {
-    const { input } = request.body
+    const { input, outputLang = 'korean' } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -608,7 +611,7 @@ fastify.post('/api/email/auto-detect', async (request, reply) => {
 
 fastify.post('/api/email/analyze', async (request, reply) => {
   try {
-    const { input } = request.body
+    const { input, outputLang = 'korean' } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -618,7 +621,8 @@ fastify.post('/api/email/analyze', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    const userPrompt = `Perform a deep structural analysis of the following email context. Analyze relationship dynamics, urgency, business implications, and response requirements. Write all descriptive values in Korean.\n\nEmail Context:\n${input}\n\nReturn only valid JSON with these fields:\n- "relationship": relationship described in Korean\n- "urgency": urgency described in Korean\n- "priority": priority described in Korean\n- "emotionalTone": detected emotional tone in Korean\n- "businessContext": brief description of business context in Korean\n- "deadlines": array of mentioned deadlines\n- "risks": array of potential risks or concerns in Korean\n- "responseRequired": boolean\n- "suggestedResponseTime": recommended response timeframe in Korean\n- "keyStakeholders": array of mentioned stakeholders`
+    const targetLanguage = languageName(outputLang)
+    const userPrompt = `Perform a deep structural analysis of the following email context. Analyze relationship dynamics, urgency, business implications, and response requirements. Write all descriptive values in ${targetLanguage}.\n\nEmail Context:\n${input}\n\nReturn only valid JSON with these fields:\n- "relationship": relationship described in ${targetLanguage}\n- "urgency": urgency described in ${targetLanguage}\n- "priority": priority described in ${targetLanguage}\n- "emotionalTone": detected emotional tone in ${targetLanguage}\n- "businessContext": brief description of business context in ${targetLanguage}\n- "deadlines": array of mentioned deadlines\n- "risks": array of potential risks or concerns in ${targetLanguage}\n- "responseRequired": boolean\n- "suggestedResponseTime": recommended response timeframe in ${targetLanguage}\n- "keyStakeholders": array of mentioned stakeholders`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
@@ -660,7 +664,7 @@ fastify.post('/api/email/analyze', async (request, reply) => {
 
 fastify.post('/api/email/extract-actions', async (request, reply) => {
   try {
-    const { input } = request.body
+    const { input, outputLang = 'korean' } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -670,7 +674,8 @@ fastify.post('/api/email/extract-actions', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    const userPrompt = `Extract detailed action items from the following email. Write all descriptions, assignees, timeframes, dependencies, deliverables, commitments, requests, and decisions in Korean.\n\nEmail:\n${input}\n\nReturn only valid JSON with these fields:\n- "actionItems": array of objects with:\n  - "description": task description in Korean\n  - "assignee": assignee in Korean\n  - "deadline": deadline string or null\n  - "timeframe": estimated timeframe in Korean\n  - "priority": priority in Korean\n  - "status": status in Korean\n  - "dependencies": array of dependency descriptions in Korean\n  - "deliverables": array of expected deliverables in Korean\n- "commitmentsBySender": array of commitments made by the email sender in Korean\n- "requestsToRecipient": array of requests made to the recipient in Korean\n- "decisionsNeeded": array of decisions that need to be made in Korean\n- "followUpDate": suggested follow-up date or null`
+    const targetLanguage = languageName(outputLang)
+    const userPrompt = `Extract detailed action items from the following email. Write all descriptions, assignees, timeframes, dependencies, deliverables, commitments, requests, and decisions in ${targetLanguage}.\n\nEmail:\n${input}\n\nReturn only valid JSON with these fields:\n- "actionItems": array of objects with:\n  - "description": task description in ${targetLanguage}\n  - "assignee": assignee in ${targetLanguage}\n  - "deadline": deadline string or null\n  - "timeframe": estimated timeframe in ${targetLanguage}\n  - "priority": priority in ${targetLanguage}\n  - "status": status in ${targetLanguage}\n  - "dependencies": array of dependency descriptions in ${targetLanguage}\n  - "deliverables": array of expected deliverables in ${targetLanguage}\n- "commitmentsBySender": array of commitments made by the email sender in ${targetLanguage}\n- "requestsToRecipient": array of requests made to the recipient in ${targetLanguage}\n- "decisionsNeeded": array of decisions that need to be made in ${targetLanguage}\n- "followUpDate": suggested follow-up date or null`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
