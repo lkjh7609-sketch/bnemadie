@@ -176,6 +176,117 @@ Core Principles:
 
 const MAX_INPUT_LENGTH = 10000
 
+function parseJsonResponse(responseText, fallback) {
+  try {
+    return JSON.parse(responseText)
+  } catch (error) {
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0])
+      } catch (nestedError) {
+        // Fall through to the caller-provided fallback.
+      }
+    }
+
+    return fallback
+  }
+}
+
+fastify.post('/api/email/smart-generate', async (request, reply) => {
+  try {
+    const { userInput, input } = request.body || {}
+    const rawInput = typeof userInput === 'string' ? userInput : input
+
+    if (!rawInput || typeof rawInput !== 'string') {
+      return reply.code(400).send({ error: 'Invalid input' })
+    }
+
+    if (rawInput.length > MAX_INPUT_LENGTH) {
+      return reply.code(400).send({ error: 'Input too long' })
+    }
+
+    // Stage 1: infer the situation and create a first draft without requiring
+    // the caller to choose language, tone, or email length.
+    const draftPrompt = `Analyze the user's request and create a professional business email draft.
+Infer the appropriate output language, relationship, tone, and length from the context.
+Do not invent names, dates, facts, or commitments that are not present in the input.
+
+User request:
+${rawInput}
+
+Return only valid JSON with these fields:
+- "subject": email subject
+- "content": complete email body
+- "detectedLanguage": the output language
+- "tone": the selected business tone
+- "reasoning": brief explanation of the inferred context`
+
+    const draftResponse = await callAnthropicAPI(
+      [{ role: 'user', content: draftPrompt }],
+      ENHANCED_SYSTEM_PROMPT,
+      2500
+    )
+
+    const draftText = draftResponse.content?.[0]?.text || ''
+    const draft = parseJsonResponse(draftText, {
+      subject: '',
+      content: draftText,
+      detectedLanguage: 'Unknown',
+      tone: 'professional',
+      reasoning: 'Draft generated without structured metadata'
+    })
+
+    // Stage 2: independently review the draft and return the corrected final
+    // version together with actionable quality feedback.
+    const reviewPrompt = `Review the following AI-generated business email against the user's original request.
+Check factual faithfulness, clarity, grammar, cultural appropriateness, relationship-appropriate politeness,
+professional tone, unnecessary wording, and whether the requested purpose is clear.
+Fix every issue you find and return the final usable email. Preserve facts and do not add unsupported details.
+
+Original user request:
+${rawInput}
+
+Draft:
+${JSON.stringify(draft)}
+
+Return only valid JSON with these fields:
+- "subject": final email subject
+- "content": final corrected email body
+- "detectedLanguage": final output language
+- "tone": final tone
+- "businessAppropriate": boolean indicating whether the final email is suitable for business use
+- "score": integer from 0 to 100
+- "strengths": array of short positive observations
+- "issuesFound": array of issues that were corrected, or an empty array
+- "reviewSummary": short explanation of the final review`
+
+    const reviewResponse = await callAnthropicAPI(
+      [{ role: 'user', content: reviewPrompt }],
+      ENHANCED_SYSTEM_PROMPT,
+      3000
+    )
+
+    const reviewText = reviewResponse.content?.[0]?.text || ''
+    const result = parseJsonResponse(reviewText, {
+      subject: draft.subject || '',
+      content: draft.content || reviewText,
+      detectedLanguage: draft.detectedLanguage || 'Unknown',
+      tone: draft.tone || 'professional',
+      businessAppropriate: true,
+      score: null,
+      strengths: [],
+      issuesFound: [],
+      reviewSummary: 'Final review response could not be parsed as structured JSON.'
+    })
+
+    return reply.send(result)
+  } catch (error) {
+    request.log.error({ err: error }, 'Error in smart email generation')
+    return reply.code(500).send({ error: 'Failed to smart-generate email' })
+  }
+})
+
 fastify.post('/api/email/generate', async (request, reply) => {
   try {
     const { input, inputLang, outputLang, tone, length } = request.body

@@ -51,7 +51,11 @@ npm run dev
 Generate a new email based on user input with language, tone, and length options.
 
 ### POST /api/email/smart-generate
-Automatically detect context and generate appropriate email without explicit options.
+Automatically detect context and generate an email without explicit options. The
+server then performs a second AI review for business tone, clarity, grammar,
+cultural appropriateness, and factual faithfulness before returning the final
+email plus review metadata (`businessAppropriate`, `score`, `strengths`, and
+`issuesFound`).
 
 ### POST /api/email/reply
 Generate a reply to an existing email.
