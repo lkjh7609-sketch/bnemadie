@@ -172,9 +172,20 @@ Core Principles:
 3. Appropriate Tone: Match the tone to the relationship (superior/peer/subordinate/client/vendor) and situation (request/apology/update/complaint).
 4. Factual Accuracy: Never invent information. Use neutral wording when details are missing.
 5. Conciseness: Be clear and professional without unnecessary verbosity.
-6. Cultural Awareness: Korean business emails often use more formal honorifics and indirect language. English business emails are typically more direct but still polite.`
+6. Cultural Awareness: Korean business emails often use more formal honorifics and indirect language. English business emails are typically more direct but still polite.
+7. Default Language: Unless the user explicitly requests another language, write the email and all explanations in Korean.`
 
 const MAX_INPUT_LENGTH = 10000
+const LANGUAGE_NAMES = {
+  korean: 'Korean',
+  english: 'English',
+  japanese: 'Japanese',
+  chinese: 'Chinese'
+}
+
+function languageName(language) {
+  return LANGUAGE_NAMES[language] || language || 'Korean'
+}
 
 function parseJsonResponse(responseText, fallback) {
   try {
@@ -195,7 +206,7 @@ function parseJsonResponse(responseText, fallback) {
 
 fastify.post('/api/email/smart-generate', async (request, reply) => {
   try {
-    const { userInput, input } = request.body || {}
+    const { userInput, input, inputLang = 'korean', outputLang = 'korean' } = request.body || {}
     const rawInput = typeof userInput === 'string' ? userInput : input
 
     if (!rawInput || typeof rawInput !== 'string') {
@@ -208,8 +219,11 @@ fastify.post('/api/email/smart-generate', async (request, reply) => {
 
     // Stage 1: infer the situation and create a first draft without requiring
     // the caller to choose language, tone, or email length.
-    const draftPrompt = `Analyze the user's request and create a professional business email draft.
-Infer the appropriate output language, relationship, tone, and length from the context.
+    const targetLanguage = languageName(outputLang)
+    const draftPrompt = `Analyze the user's request and create a professional business email draft in ${targetLanguage}.
+The user's input language is ${languageName(inputLang)} and the requested output language is ${targetLanguage}.
+Infer the relationship, tone, and length from the context. Write the subject and body in ${targetLanguage},
+and write reasoning and metadata in Korean.
 Do not invent names, dates, facts, or commitments that are not present in the input.
 
 User request:
@@ -220,7 +234,7 @@ Return only valid JSON with these fields:
 - "content": complete email body
 - "detectedLanguage": the output language
 - "tone": the selected business tone
-- "reasoning": brief explanation of the inferred context`
+- "reasoning": brief explanation of the inferred context in Korean`
 
     const draftResponse = await callAnthropicAPI(
       [{ role: 'user', content: draftPrompt }],
@@ -232,9 +246,9 @@ Return only valid JSON with these fields:
     const draft = parseJsonResponse(draftText, {
       subject: '',
       content: draftText,
-      detectedLanguage: 'Unknown',
-      tone: 'professional',
-      reasoning: 'Draft generated without structured metadata'
+      detectedLanguage: targetLanguage,
+      tone: '전문적',
+      reasoning: '구조화된 메타데이터 없이 초안이 생성되었습니다.'
     })
 
     // Stage 2: independently review the draft and return the corrected final
@@ -242,7 +256,8 @@ Return only valid JSON with these fields:
     const reviewPrompt = `Review the following AI-generated business email against the user's original request.
 Check factual faithfulness, clarity, grammar, cultural appropriateness, relationship-appropriate politeness,
 professional tone, unnecessary wording, and whether the requested purpose is clear.
-Fix every issue you find and return the final usable email. Preserve facts and do not add unsupported details.
+Fix every issue you find and return the final usable email in ${targetLanguage}. Preserve facts and do not add unsupported details.
+If the final email is not Korean, also provide a faithful Korean translation of the complete email body.
 
 Original user request:
 ${rawInput}
@@ -255,6 +270,7 @@ Return only valid JSON with these fields:
 - "content": final corrected email body
 - "detectedLanguage": final output language
 - "tone": final tone
+- "koreanTranslation": Korean translation of the complete body, or null when the output is Korean
 - "businessAppropriate": boolean indicating whether the final email is suitable for business use
 - "score": integer from 0 to 100
 - "strengths": array of short positive observations
@@ -271,13 +287,14 @@ Return only valid JSON with these fields:
     const result = parseJsonResponse(reviewText, {
       subject: draft.subject || '',
       content: draft.content || reviewText,
-      detectedLanguage: draft.detectedLanguage || 'Unknown',
-      tone: draft.tone || 'professional',
+      detectedLanguage: draft.detectedLanguage || targetLanguage,
+      tone: draft.tone || '전문적',
+      koreanTranslation: null,
       businessAppropriate: true,
       score: null,
       strengths: [],
       issuesFound: [],
-      reviewSummary: 'Final review response could not be parsed as structured JSON.'
+      reviewSummary: '최종 검토 응답을 구조화된 JSON으로 변환하지 못했습니다.'
     })
 
     return reply.send(result)
@@ -317,7 +334,7 @@ fastify.post('/api/email/generate', async (request, reply) => {
       userPrompt += `Length: ${length}\n`
     }
 
-    userPrompt += '\nPlease generate an appropriate professional email based on the above information. Return only valid JSON with "subject" and "content" fields.'
+    userPrompt += `\nPlease generate an appropriate professional email. The subject and content must be in ${languageName(outputLang)}. If the output is not Korean, also return a faithful Korean translation of the complete email body. Return only valid JSON with "subject", "content", and "koreanTranslation" fields. Set "koreanTranslation" to null when the content is Korean.`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
@@ -336,7 +353,8 @@ fastify.post('/api/email/generate', async (request, reply) => {
       } else {
         result = {
           subject: '',
-          content: responseText
+          content: responseText,
+          koreanTranslation: null
         }
       }
     }
@@ -360,7 +378,7 @@ fastify.post('/api/email/reply', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    let userPrompt = `The user wants to reply to the following email. Analyze the email and generate an appropriate reply.\n\nOriginal Email and User's Instructions:\n${input}\n\n`
+    let userPrompt = `The user wants to reply to the following email. Analyze the email and generate an appropriate reply in Korean.\n\nOriginal Email and User's Instructions:\n${input}\n\n`
 
     if (outputLang && outputLang !== 'auto') {
       userPrompt += `Reply Language: ${outputLang}\n`
@@ -374,7 +392,7 @@ fastify.post('/api/email/reply', async (request, reply) => {
       userPrompt += `Length: ${length}\n`
     }
 
-    userPrompt += '\nGenerate a professional reply email. Return only valid JSON with "subject" and "content" fields.'
+    userPrompt += `\nGenerate a professional reply email. The subject and content must be in ${languageName(outputLang || 'korean')}. If the output is not Korean, also return a faithful Korean translation of the complete email body. Return only valid JSON with "subject", "content", and "koreanTranslation" fields. Set "koreanTranslation" to null when the content is Korean.`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
@@ -393,7 +411,8 @@ fastify.post('/api/email/reply', async (request, reply) => {
       } else {
         result = {
           subject: '',
-          content: responseText
+          content: responseText,
+          koreanTranslation: null
         }
       }
     }
@@ -417,7 +436,7 @@ fastify.post('/api/email/grammar', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    const userPrompt = `Check and improve the grammar, spelling, and style of the following English email. Make it sound natural and professional for business communication.\n\nOriginal Email:\n${input}\n\nReturn only valid JSON with these fields:\n- "original": the original text\n- "improved": the corrected version\n- "changes": an array of objects with "before", "after", and "explanation" for each significant change`
+    const userPrompt = `Check and improve the grammar, spelling, and style of the following English email. Make it sound natural and professional for business communication. Keep the original and improved email in English, but write every explanation in Korean.\n\nOriginal Email:\n${input}\n\nReturn only valid JSON with these fields:\n- "original": the original text\n- "improved": the corrected version\n- "changes": an array of objects with "before", "after", and "explanation" for each significant change`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
@@ -462,7 +481,7 @@ fastify.post('/api/email/summarize', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    const userPrompt = `Analyze and summarize the following email. Extract key information.\n\nEmail:\n${input}\n\nReturn only valid JSON with these fields:\n- "summary": brief summary of the email\n- "keyPoints": array of main points\n- "actionItems": array of action items or requests\n- "deadline": deadline if mentioned (or null)\n- "tone": the tone of the email (formal/professional/friendly/etc)`
+    const userPrompt = `Analyze and summarize the following email. Extract key information. Write all summaries, points, action items, deadlines, and tone descriptions in Korean.\n\nEmail:\n${input}\n\nReturn only valid JSON with these fields:\n- "summary": brief summary of the email in Korean\n- "keyPoints": array of main points in Korean\n- "actionItems": array of action items or requests in Korean\n- "deadline": deadline if mentioned (or null)\n- "tone": the tone of the email, described in Korean`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
@@ -508,7 +527,7 @@ fastify.post('/api/email/regenerate', async (request, reply) => {
       return reply.code(400).send({ error: 'Content too long' })
     }
 
-    const userPrompt = `Please rewrite the following email with a ${tone} tone. Keep the core message the same but adjust the tone appropriately.\n\nOriginal Email:\n${content}\n\nReturn only valid JSON with "subject" and "content" fields.`
+    const userPrompt = `Please rewrite the following email with a ${tone} tone. Keep the core message the same but adjust the tone appropriately. Write the rewritten subject and content in the requested tone. If the output is not Korean, also return a faithful Korean translation of the complete email body.\n\nOriginal Email:\n${content}\n\nReturn only valid JSON with "subject", "content", and "koreanTranslation" fields. Set "koreanTranslation" to null when the content is Korean.`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
@@ -527,7 +546,8 @@ fastify.post('/api/email/regenerate', async (request, reply) => {
       } else {
         result = {
           subject: '',
-          content: responseText
+          content: responseText,
+          koreanTranslation: null
         }
       }
     }
@@ -551,7 +571,7 @@ fastify.post('/api/email/auto-detect', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    const userPrompt = `Analyze the following user input and determine what they want to do with email. Detect the task type, input language, and suggest appropriate tone.\n\nUser Input:\n${input}\n\nReturn only valid JSON with these fields:\n- "taskType": one of "generate", "reply", "grammar", "summarize"\n- "detectedLanguage": detected language of input (Korean/English/etc)\n- "suggestedTone": recommended tone (professional/friendly/direct)\n- "confidence": confidence level 0-1\n- "reasoning": brief explanation of the detection`
+    const userPrompt = `Analyze the following user input and determine what they want to do with email. Detect the task type, input language, and suggest an appropriate tone. Write detectedLanguage, suggestedTone, and reasoning in Korean.\n\nUser Input:\n${input}\n\nReturn only valid JSON with these fields:\n- "taskType": one of "generate", "reply", "grammar", "summarize"\n- "detectedLanguage": detected language of input in Korean\n- "suggestedTone": recommended tone in Korean\n- "confidence": confidence level 0-1\n- "reasoning": brief explanation of the detection in Korean`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
@@ -571,10 +591,10 @@ fastify.post('/api/email/auto-detect', async (request, reply) => {
       } else {
         result = {
           taskType: 'generate',
-          detectedLanguage: 'Unknown',
-          suggestedTone: 'professional',
+          detectedLanguage: '알 수 없음',
+          suggestedTone: '전문적',
           confidence: 0.5,
-          reasoning: 'Unable to parse response'
+          reasoning: '응답을 분석하지 못했습니다.'
         }
       }
     }
@@ -598,7 +618,7 @@ fastify.post('/api/email/analyze', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    const userPrompt = `Perform a deep structural analysis of the following email context. Analyze relationship dynamics, urgency, business implications, and response requirements.\n\nEmail Context:\n${input}\n\nReturn only valid JSON with these fields:\n- "relationship": one of "superior", "peer", "subordinate", "client", "vendor", "unknown"\n- "urgency": one of "critical", "high", "medium", "low"\n- "priority": one of "critical", "high", "medium", "low"\n- "emotionalTone": detected emotional tone\n- "businessContext": brief description of business context\n- "deadlines": array of mentioned deadlines\n- "risks": array of potential risks or concerns\n- "responseRequired": boolean\n- "suggestedResponseTime": recommended response timeframe\n- "keyStakeholders": array of mentioned stakeholders`
+    const userPrompt = `Perform a deep structural analysis of the following email context. Analyze relationship dynamics, urgency, business implications, and response requirements. Write all descriptive values in Korean.\n\nEmail Context:\n${input}\n\nReturn only valid JSON with these fields:\n- "relationship": relationship described in Korean\n- "urgency": urgency described in Korean\n- "priority": priority described in Korean\n- "emotionalTone": detected emotional tone in Korean\n- "businessContext": brief description of business context in Korean\n- "deadlines": array of mentioned deadlines\n- "risks": array of potential risks or concerns in Korean\n- "responseRequired": boolean\n- "suggestedResponseTime": recommended response timeframe in Korean\n- "keyStakeholders": array of mentioned stakeholders`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
@@ -650,7 +670,7 @@ fastify.post('/api/email/extract-actions', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    const userPrompt = `Extract detailed action items from the following email. Include task descriptions, assignees, deadlines, priorities, status, dependencies, deliverables, commitments, requests, and decisions needed.\n\nEmail:\n${input}\n\nReturn only valid JSON with these fields:\n- "actionItems": array of objects with:\n  - "description": task description\n  - "assignee": one of "sender", "recipient", "team", "specific person name", "unknown"\n  - "deadline": deadline string or null\n  - "timeframe": estimated timeframe\n  - "priority": one of "critical", "high", "medium", "low"\n  - "status": one of "requested", "committed", "pending", "in-progress"\n  - "dependencies": array of dependency descriptions\n  - "deliverables": array of expected deliverables\n- "commitmentsBySender": array of commitments made by the email sender\n- "requestsToRecipient": array of requests made to the recipient\n- "decisionsNeeded": array of decisions that need to be made\n- "followUpDate": suggested follow-up date or null`
+    const userPrompt = `Extract detailed action items from the following email. Write all descriptions, assignees, timeframes, dependencies, deliverables, commitments, requests, and decisions in Korean.\n\nEmail:\n${input}\n\nReturn only valid JSON with these fields:\n- "actionItems": array of objects with:\n  - "description": task description in Korean\n  - "assignee": assignee in Korean\n  - "deadline": deadline string or null\n  - "timeframe": estimated timeframe in Korean\n  - "priority": priority in Korean\n  - "status": status in Korean\n  - "dependencies": array of dependency descriptions in Korean\n  - "deliverables": array of expected deliverables in Korean\n- "commitmentsBySender": array of commitments made by the email sender in Korean\n- "requestsToRecipient": array of requests made to the recipient in Korean\n- "decisionsNeeded": array of decisions that need to be made in Korean\n- "followUpDate": suggested follow-up date or null`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
