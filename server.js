@@ -189,6 +189,18 @@ function languageName(language) {
   return LANGUAGE_NAMES[language] || language || 'Korean'
 }
 
+function recipientDetailsPrompt(details = {}) {
+  const entries = [
+    ['Recipient name', details.recipientName],
+    ['Recipient company', details.recipientCompany],
+    ['Recipient role', details.recipientRole]
+  ].filter(([, value]) => typeof value === 'string' && value.trim())
+
+  return entries.length
+    ? `\nOptional recipient details (use only when provided; never invent missing details):\n${entries.map(([label, value]) => `${label}: ${value.trim()}`).join('\n')}\n`
+    : ''
+}
+
 function parseJsonResponse(responseText, fallback) {
   try {
     return JSON.parse(responseText)
@@ -208,7 +220,7 @@ function parseJsonResponse(responseText, fallback) {
 
 fastify.post('/api/email/smart-generate', async (request, reply) => {
   try {
-    const { userInput, input, inputLang = 'korean', outputLang = 'korean' } = request.body || {}
+    const { userInput, input, inputLang = 'korean', outputLang = 'korean', recipientDetails } = request.body || {}
     const rawInput = typeof userInput === 'string' ? userInput : input
 
     if (!rawInput || typeof rawInput !== 'string') {
@@ -230,6 +242,7 @@ Do not invent names, dates, facts, or commitments that are not present in the in
 
 User request:
 ${rawInput}
+${recipientDetailsPrompt(recipientDetails)}
 
 Return only valid JSON with these fields:
 - "subject": email subject
@@ -308,7 +321,7 @@ Return only valid JSON with these fields:
 
 fastify.post('/api/email/generate', async (request, reply) => {
   try {
-    const { input, inputLang, outputLang, tone, length } = request.body
+    const { input, inputLang, outputLang, tone, length, recipientDetails } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -318,7 +331,7 @@ fastify.post('/api/email/generate', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    let userPrompt = `User Input:\n${input}\n\n`
+    let userPrompt = `User Input:\n${input}\n\n${recipientDetailsPrompt(recipientDetails)}`
 
     if (inputLang && inputLang !== 'auto') {
       userPrompt += `Input Language: ${inputLang}\n`
@@ -370,7 +383,7 @@ fastify.post('/api/email/generate', async (request, reply) => {
 
 fastify.post('/api/email/reply', async (request, reply) => {
   try {
-    const { input, outputLang, tone, length } = request.body
+    const { input, outputLang, tone, length, recipientDetails } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -380,7 +393,7 @@ fastify.post('/api/email/reply', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    let userPrompt = `The user wants to reply to the following email. Analyze the email and generate an appropriate reply in Korean.\n\nOriginal Email and User's Instructions:\n${input}\n\n`
+    let userPrompt = `The user wants to reply to the following email. Analyze the email and generate an appropriate reply in Korean.\n\nOriginal Email and User's Instructions:\n${input}\n\n${recipientDetailsPrompt(recipientDetails)}`
 
     if (outputLang && outputLang !== 'auto') {
       userPrompt += `Reply Language: ${outputLang}\n`
@@ -521,7 +534,7 @@ fastify.post('/api/email/summarize', async (request, reply) => {
 
 fastify.post('/api/email/regenerate', async (request, reply) => {
   try {
-    const { content, tone, outputLang = 'korean' } = request.body
+    const { content, tone, outputLang = 'korean', recipientDetails } = request.body
 
     if (!content || typeof content !== 'string') {
       return reply.code(400).send({ error: 'Invalid content' })
@@ -532,7 +545,7 @@ fastify.post('/api/email/regenerate', async (request, reply) => {
     }
 
     const targetLanguage = languageName(outputLang)
-    const userPrompt = `Please rewrite the following email with a ${tone} tone. Keep the core message the same but adjust the tone appropriately. Write the rewritten subject and content in ${targetLanguage}. If the output is not Korean, also return a faithful Korean translation of the complete email body.\n\nOriginal Email:\n${content}\n\nReturn only valid JSON with "subject", "content", and "koreanTranslation" fields. Set "koreanTranslation" to null when the content is Korean.`
+    const userPrompt = `Please rewrite the following email with a ${tone} tone. Keep the core message the same but adjust the tone appropriately. Write the rewritten subject and content in ${targetLanguage}. If the output is not Korean, also return a faithful Korean translation of the complete email body.\n\nOriginal Email:\n${content}\n\n${recipientDetailsPrompt(recipientDetails)}Return only valid JSON with "subject", "content", and "koreanTranslation" fields. Set "koreanTranslation" to null when the content is Korean.`
 
     const apiResponse = await callAnthropicAPI(
       [{ role: 'user', content: userPrompt }],
