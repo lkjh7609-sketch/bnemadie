@@ -80,7 +80,7 @@ function hashPassword(password) {
 fastify.addHook('onRequest', async (request, reply) => {
   const publicRoutes = ['/health', '/api/auth/register', '/api/auth/login', '/api/auth/verify']
 
-  if (publicRoutes.includes(request.url) || request.url.startsWith('/api/email') || request.url.startsWith('/api/sports')) {
+  if (publicRoutes.includes(request.url) || request.url.startsWith('/api/email') || request.url.startsWith('/api/sports') || request.url.startsWith('/api/terms')) {
     return
   }
 
@@ -92,6 +92,21 @@ fastify.addHook('onRequest', async (request, reply) => {
   }
 
   request.user = apiKeys.get(apiKey)
+})
+
+fastify.post('/api/terms/suggest', async (request, reply) => {
+  try {
+    const { term, context = '' } = request.body || {}
+    if (!term || typeof term !== 'string' || term.length > 120) return reply.code(400).send({ error: 'Invalid term' })
+    const prompt = `Suggest up to four alternative professional terms for the selected word in a pharmaceutical, clinical, regulatory, quality, or manufacturing business context. Use established industry terminology rather than literal translation. Preserve the meaning of the original word and do not force a technical term if the context does not support it. Return only valid JSON: {"suggestions":[{"term":"...","explanation":"..."}]}. Explanations must be in Korean. Do not provide legal or medical conclusions.\n\nSelected word: ${term}\nContext: ${String(context).slice(0, 500)}`
+    const response = await callAnthropicAPI([{ role: 'user', content: prompt }], ENHANCED_SYSTEM_PROMPT, 900)
+    const parsed = parseJsonResponse(response.content?.[0]?.text || '', { suggestions: [] })
+    const suggestions = Array.isArray(parsed.suggestions) ? parsed.suggestions.filter((item) => item && typeof item.term === 'string').slice(0, 4) : []
+    return reply.send({ term, suggestions })
+  } catch (error) {
+    request.log.error({ err: error }, 'Error suggesting professional terms')
+    return reply.code(500).send({ error: 'Failed to suggest professional terms' })
+  }
 })
 
 // Auth endpoints
