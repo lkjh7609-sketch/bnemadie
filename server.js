@@ -3,6 +3,7 @@ import cors from '@fastify/cors'
 import crypto from 'crypto'
 import dotenv from 'dotenv'
 import { getGame } from 'kbo-game'
+import { buildRegulatoryContext, regulatoryReferences } from './regulatoryReferences.js'
 
 dotenv.config()
 
@@ -80,7 +81,7 @@ function hashPassword(password) {
 fastify.addHook('onRequest', async (request, reply) => {
   const publicRoutes = ['/health', '/api/auth/register', '/api/auth/login', '/api/auth/verify']
 
-  if (publicRoutes.includes(request.url) || request.url.startsWith('/api/email') || request.url.startsWith('/api/sports')) {
+  if (publicRoutes.includes(request.url) || request.url.startsWith('/api/email') || request.url.startsWith('/api/sports') || request.url.startsWith('/api/regulations')) {
     return
   }
 
@@ -93,6 +94,10 @@ fastify.addHook('onRequest', async (request, reply) => {
 
   request.user = apiKeys.get(apiKey)
 })
+
+fastify.get('/api/regulations', async () => ({
+  references: regulatoryReferences.map(({ terms, ...reference }) => reference)
+}))
 
 // Auth endpoints
 fastify.post('/api/auth/register', async (request, reply) => {
@@ -201,6 +206,15 @@ function recipientDetailsPrompt(details = {}) {
     : ''
 }
 
+function regulatoryPrompt(input, referenceId = 'none') {
+  return buildRegulatoryContext(input, referenceId)
+}
+
+function attachRegulatorySources(result, sources) {
+  if (sources?.length) result.regulatorySources = sources
+  return result
+}
+
 function parseJsonResponse(responseText, fallback) {
   try {
     return JSON.parse(responseText)
@@ -220,7 +234,7 @@ function parseJsonResponse(responseText, fallback) {
 
 fastify.post('/api/email/smart-generate', async (request, reply) => {
   try {
-    const { userInput, input, inputLang = 'korean', outputLang = 'korean', recipientDetails } = request.body || {}
+    const { userInput, input, inputLang = 'korean', outputLang = 'korean', recipientDetails, regulatoryReferenceId = 'none' } = request.body || {}
     const rawInput = typeof userInput === 'string' ? userInput : input
 
     if (!rawInput || typeof rawInput !== 'string') {
@@ -234,6 +248,7 @@ fastify.post('/api/email/smart-generate', async (request, reply) => {
     // Stage 1: infer the situation and create a first draft without requiring
     // the caller to choose language, tone, or email length.
     const targetLanguage = languageName(outputLang)
+    const regulatory = await regulatoryPrompt(rawInput, regulatoryReferenceId)
     const draftPrompt = `Analyze the user's request and create a professional business email draft in ${targetLanguage}.
 The user's input language is ${languageName(inputLang)} and the requested output language is ${targetLanguage}.
 Infer the relationship, tone, and length from the context. Write the subject and body in ${targetLanguage},
@@ -243,6 +258,7 @@ Do not invent names, dates, facts, or commitments that are not present in the in
 User request:
 ${rawInput}
 ${recipientDetailsPrompt(recipientDetails)}
+${regulatory.prompt}
 
 Return only valid JSON with these fields:
 - "subject": email subject
@@ -276,6 +292,8 @@ If the final email is not Korean, also provide a faithful Korean translation of 
 
 Original user request:
 ${rawInput}
+
+${regulatory.prompt}
 
 Draft:
 ${JSON.stringify(draft)}
@@ -312,7 +330,7 @@ Return only valid JSON with these fields:
       reviewSummary: '최종 검토 응답을 구조화된 JSON으로 변환하지 못했습니다.'
     })
 
-    return reply.send(result)
+    return reply.send(attachRegulatorySources(result, regulatory.sources))
   } catch (error) {
     request.log.error({ err: error }, 'Error in smart email generation')
     return reply.code(500).send({ error: 'Failed to smart-generate email' })
@@ -321,7 +339,7 @@ Return only valid JSON with these fields:
 
 fastify.post('/api/email/generate', async (request, reply) => {
   try {
-    const { input, inputLang, outputLang, tone, length, recipientDetails } = request.body
+    const { input, inputLang, outputLang, tone, length, recipientDetails, regulatoryReferenceId = 'none' } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -331,7 +349,8 @@ fastify.post('/api/email/generate', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    let userPrompt = `User Input:\n${input}\n\n${recipientDetailsPrompt(recipientDetails)}`
+    const regulatory = await regulatoryPrompt(input, regulatoryReferenceId)
+    let userPrompt = `User Input:\n${input}\n\n${recipientDetailsPrompt(recipientDetails)}${regulatory.prompt}`
 
     if (inputLang && inputLang !== 'auto') {
       userPrompt += `Input Language: ${inputLang}\n`
@@ -374,7 +393,7 @@ fastify.post('/api/email/generate', async (request, reply) => {
       }
     }
 
-    return reply.send(result)
+    return reply.send(attachRegulatorySources(result, regulatory.sources))
   } catch (error) {
     request.log.error({ err: error }, 'Error generating email')
     return reply.code(500).send({ error: 'Failed to generate email' })
@@ -383,7 +402,7 @@ fastify.post('/api/email/generate', async (request, reply) => {
 
 fastify.post('/api/email/reply', async (request, reply) => {
   try {
-    const { input, outputLang, tone, length, recipientDetails } = request.body
+    const { input, outputLang, tone, length, recipientDetails, regulatoryReferenceId = 'none' } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -393,7 +412,8 @@ fastify.post('/api/email/reply', async (request, reply) => {
       return reply.code(400).send({ error: 'Input too long' })
     }
 
-    let userPrompt = `The user wants to reply to the following email. Analyze the email and generate an appropriate reply in Korean.\n\nOriginal Email and User's Instructions:\n${input}\n\n${recipientDetailsPrompt(recipientDetails)}`
+    const regulatory = await regulatoryPrompt(input, regulatoryReferenceId)
+    let userPrompt = `The user wants to reply to the following email. Analyze the email and generate an appropriate reply.\n\nOriginal Email and User's Instructions:\n${input}\n\n${recipientDetailsPrompt(recipientDetails)}${regulatory.prompt}`
 
     if (outputLang && outputLang !== 'auto') {
       userPrompt += `Reply Language: ${outputLang}\n`
@@ -432,7 +452,7 @@ fastify.post('/api/email/reply', async (request, reply) => {
       }
     }
 
-    return reply.send(result)
+    return reply.send(attachRegulatorySources(result, regulatory.sources))
   } catch (error) {
     request.log.error({ err: error }, 'Error generating reply')
     return reply.code(500).send({ error: 'Failed to generate reply' })
@@ -441,7 +461,7 @@ fastify.post('/api/email/reply', async (request, reply) => {
 
 fastify.post('/api/email/grammar', async (request, reply) => {
   try {
-    const { input, outputLang = 'korean' } = request.body
+    const { input, outputLang = 'korean', regulatoryReferenceId = 'none' } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -452,10 +472,12 @@ fastify.post('/api/email/grammar', async (request, reply) => {
     }
 
     const targetLanguage = languageName(outputLang)
+    const regulatory = await regulatoryPrompt(input, regulatoryReferenceId)
     const userPrompt = `Check and improve the grammar, spelling, and style of the following email. Make it sound natural and professional for business communication. Keep the original text unchanged, but write the improved version and all explanations in ${targetLanguage}.\n\nOriginal Email:\n${input}\n\nReturn only valid JSON with these fields:\n- "original": the original text\n- "improved": the corrected version in ${targetLanguage}\n- "changes": an array of objects with "before", "after", and "explanation" in ${targetLanguage} for each significant change`
 
+    const userPromptWithRegulatoryContext = `${userPrompt}${regulatory.prompt}`
     const apiResponse = await callAnthropicAPI(
-      [{ role: 'user', content: userPrompt }],
+      [{ role: 'user', content: userPromptWithRegulatoryContext }],
       ENHANCED_SYSTEM_PROMPT,
       2500
     )
@@ -478,7 +500,7 @@ fastify.post('/api/email/grammar', async (request, reply) => {
       }
     }
 
-    return reply.send(result)
+    return reply.send(attachRegulatorySources(result, regulatory.sources))
   } catch (error) {
     request.log.error({ err: error }, 'Error checking grammar')
     return reply.code(500).send({ error: 'Failed to check grammar' })
@@ -487,7 +509,7 @@ fastify.post('/api/email/grammar', async (request, reply) => {
 
 fastify.post('/api/email/summarize', async (request, reply) => {
   try {
-    const { input, outputLang = 'korean' } = request.body
+    const { input, outputLang = 'korean', regulatoryReferenceId = 'none' } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -498,10 +520,12 @@ fastify.post('/api/email/summarize', async (request, reply) => {
     }
 
     const targetLanguage = languageName(outputLang)
+    const regulatory = await regulatoryPrompt(input, regulatoryReferenceId)
     const userPrompt = `Analyze and summarize the following email. Extract key information. Write all generated text in ${targetLanguage}.\n\nEmail:\n${input}\n\nReturn only valid JSON with these fields:\n- "summary": brief summary of the email in ${targetLanguage}\n- "keyPoints": array of main points in ${targetLanguage}\n- "actionItems": array of action items or requests in ${targetLanguage}\n- "deadline": deadline if mentioned (or null)\n- "tone": the tone of the email, described in ${targetLanguage}`
 
+    const userPromptWithRegulatoryContext = `${userPrompt}${regulatory.prompt}`
     const apiResponse = await callAnthropicAPI(
-      [{ role: 'user', content: userPrompt }],
+      [{ role: 'user', content: userPromptWithRegulatoryContext }],
       ENHANCED_SYSTEM_PROMPT
     )
 
@@ -525,7 +549,7 @@ fastify.post('/api/email/summarize', async (request, reply) => {
       }
     }
 
-    return reply.send(result)
+    return reply.send(attachRegulatorySources(result, regulatory.sources))
   } catch (error) {
     request.log.error({ err: error }, 'Error summarizing email')
     return reply.code(500).send({ error: 'Failed to summarize email' })
@@ -534,7 +558,7 @@ fastify.post('/api/email/summarize', async (request, reply) => {
 
 fastify.post('/api/email/regenerate', async (request, reply) => {
   try {
-    const { content, tone, outputLang = 'korean', recipientDetails } = request.body
+    const { content, tone, outputLang = 'korean', recipientDetails, regulatoryReferenceId = 'none' } = request.body
 
     if (!content || typeof content !== 'string') {
       return reply.code(400).send({ error: 'Invalid content' })
@@ -545,10 +569,12 @@ fastify.post('/api/email/regenerate', async (request, reply) => {
     }
 
     const targetLanguage = languageName(outputLang)
+    const regulatory = await regulatoryPrompt(content, regulatoryReferenceId)
     const userPrompt = `Please rewrite the following email with a ${tone} tone. Keep the core message the same but adjust the tone appropriately. Write the rewritten subject and content in ${targetLanguage}. If the output is not Korean, also return a faithful Korean translation of the complete email body.\n\nOriginal Email:\n${content}\n\n${recipientDetailsPrompt(recipientDetails)}Return only valid JSON with "subject", "content", and "koreanTranslation" fields. Set "koreanTranslation" to null when the content is Korean.`
 
+    const userPromptWithRegulatoryContext = `${userPrompt}${regulatory.prompt}`
     const apiResponse = await callAnthropicAPI(
-      [{ role: 'user', content: userPrompt }],
+      [{ role: 'user', content: userPromptWithRegulatoryContext }],
       ENHANCED_SYSTEM_PROMPT
     )
 
@@ -570,7 +596,7 @@ fastify.post('/api/email/regenerate', async (request, reply) => {
       }
     }
 
-    return reply.send(result)
+    return reply.send(attachRegulatorySources(result, regulatory.sources))
   } catch (error) {
     request.log.error({ err: error }, 'Error regenerating email')
     return reply.code(500).send({ error: 'Failed to regenerate email' })
@@ -626,7 +652,7 @@ fastify.post('/api/email/auto-detect', async (request, reply) => {
 
 fastify.post('/api/email/analyze', async (request, reply) => {
   try {
-    const { input, outputLang = 'korean' } = request.body
+    const { input, outputLang = 'korean', regulatoryReferenceId = 'none' } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -637,10 +663,12 @@ fastify.post('/api/email/analyze', async (request, reply) => {
     }
 
     const targetLanguage = languageName(outputLang)
+    const regulatory = await regulatoryPrompt(input, regulatoryReferenceId)
     const userPrompt = `Perform a deep structural analysis of the following email context. Analyze relationship dynamics, urgency, business implications, and response requirements. Write all descriptive values in ${targetLanguage}.\n\nEmail Context:\n${input}\n\nReturn only valid JSON with these fields:\n- "relationship": relationship described in ${targetLanguage}\n- "urgency": urgency described in ${targetLanguage}\n- "priority": priority described in ${targetLanguage}\n- "emotionalTone": detected emotional tone in ${targetLanguage}\n- "businessContext": brief description of business context in ${targetLanguage}\n- "deadlines": array of mentioned deadlines\n- "risks": array of potential risks or concerns in ${targetLanguage}\n- "responseRequired": boolean\n- "suggestedResponseTime": recommended response timeframe in ${targetLanguage}\n- "keyStakeholders": array of mentioned stakeholders`
 
+    const userPromptWithRegulatoryContext = `${userPrompt}${regulatory.prompt}`
     const apiResponse = await callAnthropicAPI(
-      [{ role: 'user', content: userPrompt }],
+      [{ role: 'user', content: userPromptWithRegulatoryContext }],
       ENHANCED_SYSTEM_PROMPT,
       2500
     )
@@ -670,7 +698,7 @@ fastify.post('/api/email/analyze', async (request, reply) => {
       }
     }
 
-    return reply.send(result)
+    return reply.send(attachRegulatorySources(result, regulatory.sources))
   } catch (error) {
     request.log.error({ err: error }, 'Error analyzing email')
     return reply.code(500).send({ error: 'Failed to analyze email' })
@@ -679,7 +707,7 @@ fastify.post('/api/email/analyze', async (request, reply) => {
 
 fastify.post('/api/email/extract-actions', async (request, reply) => {
   try {
-    const { input, outputLang = 'korean' } = request.body
+    const { input, outputLang = 'korean', regulatoryReferenceId = 'none' } = request.body
 
     if (!input || typeof input !== 'string') {
       return reply.code(400).send({ error: 'Invalid input' })
@@ -690,10 +718,12 @@ fastify.post('/api/email/extract-actions', async (request, reply) => {
     }
 
     const targetLanguage = languageName(outputLang)
+    const regulatory = await regulatoryPrompt(input, regulatoryReferenceId)
     const userPrompt = `Extract detailed action items from the following email. Write all descriptions, assignees, timeframes, dependencies, deliverables, commitments, requests, and decisions in ${targetLanguage}.\n\nEmail:\n${input}\n\nReturn only valid JSON with these fields:\n- "actionItems": array of objects with:\n  - "description": task description in ${targetLanguage}\n  - "assignee": assignee in ${targetLanguage}\n  - "deadline": deadline string or null\n  - "timeframe": estimated timeframe in ${targetLanguage}\n  - "priority": priority in ${targetLanguage}\n  - "status": status in ${targetLanguage}\n  - "dependencies": array of dependency descriptions in ${targetLanguage}\n  - "deliverables": array of expected deliverables in ${targetLanguage}\n- "commitmentsBySender": array of commitments made by the email sender in ${targetLanguage}\n- "requestsToRecipient": array of requests made to the recipient in ${targetLanguage}\n- "decisionsNeeded": array of decisions that need to be made in ${targetLanguage}\n- "followUpDate": suggested follow-up date or null`
 
+    const userPromptWithRegulatoryContext = `${userPrompt}${regulatory.prompt}`
     const apiResponse = await callAnthropicAPI(
-      [{ role: 'user', content: userPrompt }],
+      [{ role: 'user', content: userPromptWithRegulatoryContext }],
       ENHANCED_SYSTEM_PROMPT,
       3000
     )
@@ -718,7 +748,7 @@ fastify.post('/api/email/extract-actions', async (request, reply) => {
       }
     }
 
-    return reply.send(result)
+    return reply.send(attachRegulatorySources(result, regulatory.sources))
   } catch (error) {
     request.log.error({ err: error }, 'Error extracting actions')
     return reply.code(500).send({ error: 'Failed to extract actions' })
