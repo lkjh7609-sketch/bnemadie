@@ -873,6 +873,7 @@ fastify.get('/api/sports/doosan', async (request, reply) => {
           id: game.id,
           date,
           startTime: game.startTime,
+          stadiumKey: game.stadium,
           stadium: stadiumNames[game.stadium] || game.stadium,
           homeTeam: game.homeTeam,
           awayTeam: game.awayTeam,
@@ -887,9 +888,8 @@ fastify.get('/api/sports/doosan', async (request, reply) => {
       })
 
     for (const game of doosanGames) {
-      const sourceGame = (games || []).find((item) => item.id === game.id)
       try {
-        game.weather = await fetchStadiumWeather(date, game.startTime, sourceGame?.stadium)
+        game.weather = await fetchStadiumWeather(date, game.startTime, game.stadiumKey)
       } catch (weatherError) {
         request.log.warn({ err: weatherError }, 'Weather data unavailable')
       }
