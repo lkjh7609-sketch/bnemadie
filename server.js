@@ -742,12 +742,19 @@ const stadiumNames = {
 
 const stadiumCoordinates = {
   '문학': { latitude: 37.4371, longitude: 126.6932 },
+  '인천SSG랜더스필드': { latitude: 37.4371, longitude: 126.6932 },
   '잠실': { latitude: 37.5121, longitude: 127.0719 },
+  '잠실야구장': { latitude: 37.5121, longitude: 127.0719 },
   '사직': { latitude: 35.1940, longitude: 129.0614 },
+  '사직야구장': { latitude: 35.1940, longitude: 129.0614 },
   '광주': { latitude: 35.1681, longitude: 126.8895 },
+  '광주-기아 챔피언스 필드': { latitude: 35.1681, longitude: 126.8895 },
   '고척': { latitude: 37.4982, longitude: 126.8671 },
+  '고척스카이돔': { latitude: 37.4982, longitude: 126.8671 },
   '대구': { latitude: 35.8410, longitude: 128.6814 },
+  '대구삼성라이온즈파크': { latitude: 35.8410, longitude: 128.6814 },
   '수원': { latitude: 37.2997, longitude: 127.0097 },
+  '수원KT위즈파크': { latitude: 37.2997, longitude: 127.0097 },
   '창원': { latitude: 35.2229, longitude: 128.5820 }
 }
 
