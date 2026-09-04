@@ -217,7 +217,8 @@ function attachRegulatorySources(result, sources) {
 
 function parseJsonResponse(responseText, fallback) {
   try {
-    return JSON.parse(responseText)
+    const cleaned = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+    return JSON.parse(cleaned)
   } catch (error) {
     const jsonMatch = responseText.match(/\{[\s\S]*\}/)
     if (jsonMatch) {
@@ -329,6 +330,14 @@ Return only valid JSON with these fields:
       issuesFound: [],
       reviewSummary: '최종 검토 응답을 구조화된 JSON으로 변환하지 못했습니다.'
     })
+
+    // Some gateway/model responses contain only the review metadata. Never
+    // discard a usable first draft just because the second-stage JSON omitted
+    // subject or content.
+    result.subject = result.subject || draft.subject || ''
+    result.content = result.content || draft.content || reviewText
+    result.detectedLanguage = result.detectedLanguage || draft.detectedLanguage || targetLanguage
+    result.tone = result.tone || draft.tone || '전문적'
 
     return reply.send(attachRegulatorySources(result, regulatory.sources))
   } catch (error) {
