@@ -825,8 +825,9 @@ async function fetchStadiumWeather(date, startTime, stadium) {
   const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`)
   if (!response.ok) throw new Error(`Weather API error: ${response.status}`)
   const data = await response.json()
-  const time = `${date}T${startTime}:00`
-  const previousTime = `${previousDate}T${startTime}:00`
+  const hour = String(startTime || '18:00').slice(0, 2)
+  const time = `${date}T${hour}:00`
+  const previousTime = `${previousDate}T${hour}:00`
   const currentIndex = data.hourly?.time?.indexOf(time)
   const previousIndex = data.hourly?.time?.indexOf(previousTime)
   const dailyIndex = data.daily?.time?.indexOf(date)
