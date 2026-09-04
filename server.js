@@ -53,7 +53,7 @@ async function callAnthropicAPI(messages, systemPrompt, maxTokens = 2000) {
       model: 'claude-sonnet-5',
       max_tokens: maxTokens,
       messages: messages,
-      system: systemPrompt
+      system: `${systemPrompt}${PHARMACEUTICAL_TERMINOLOGY_PROMPT}`
     })
   })
 
@@ -176,6 +176,15 @@ Core Principles:
 5. Conciseness: Be clear and professional without unnecessary verbosity.
 6. Cultural Awareness: Korean business emails often use more formal honorifics and indirect language. English business emails are typically more direct but still polite.
 7. Default Language: Unless the user explicitly requests another language, write the email and all explanations in Korean.`
+
+const PHARMACEUTICAL_TERMINOLOGY_PROMPT = `
+Pharmaceutical and regulatory terminology rules for email-related outputs:
+- When the context is pharmaceutical, clinical, regulatory, quality, manufacturing, or medical, use terminology used by MFDS, the Ministry of Government Legislation, and pharmaceutical companies rather than literal translations.
+- Prefer established terms such as protocol (시험계획서/프로토콜 when appropriate), clinical trial, investigational product, active pharmaceutical ingredient (API), finished product, specification, stability study, validation, deviation, change control, CAPA, quality assurance (QA), quality control (QC), batch/lot, release testing, and certificate of analysis (CoA) when the context supports them.
+- Do not mechanically replace every word: choose the term that matches the source context and never change the legal or scientific meaning.
+- If an original email is supplied, preserve its established professional and regulatory terms as much as possible. Correct grammar and tone around them, but do not replace a valid technical term with a casual or literal synonym.
+- Do not invent regulatory conclusions, approvals, study results, or commitments. Terminology reference is not legal or medical advice.
+`
 
 const MAX_INPUT_LENGTH = 10000
 const LANGUAGE_NAMES = {
