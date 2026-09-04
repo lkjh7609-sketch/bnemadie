@@ -741,7 +741,14 @@ const stadiumNames = {
 }
 
 const stadiumCoordinates = {
-  '문학': { latitude: 37.4371, longitude: 126.6932 }
+  '문학': { latitude: 37.4371, longitude: 126.6932 },
+  '잠실': { latitude: 37.5121, longitude: 127.0719 },
+  '사직': { latitude: 35.1940, longitude: 129.0614 },
+  '광주': { latitude: 35.1681, longitude: 126.8895 },
+  '고척': { latitude: 37.4982, longitude: 126.8671 },
+  '대구': { latitude: 35.8410, longitude: 128.6814 },
+  '수원': { latitude: 37.2997, longitude: 127.0097 },
+  '창원': { latitude: 35.2229, longitude: 128.5820 }
 }
 
 const teamSlugs = {
@@ -810,6 +817,7 @@ async function fetchStadiumWeather(date, startTime, stadium) {
     longitude: coordinates.longitude,
     hourly: 'temperature_2m,relative_humidity_2m,precipitation_probability,wind_speed_10m,weather_code',
     daily: 'temperature_2m_max,temperature_2m_min',
+    wind_speed_unit: 'ms',
     timezone: 'Asia/Seoul',
     start_date: previousDate,
     end_date: date
