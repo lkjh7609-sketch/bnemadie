@@ -2,6 +2,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import crypto from 'crypto'
 import dotenv from 'dotenv'
+import { getGame } from 'kbo-game'
 
 dotenv.config()
 
@@ -29,7 +30,8 @@ await fastify.register(cors, {
     'tauri://localhost',
     'https://tauri.localhost',
     /\.vercel\.app$/,
-    /\.netlify\.app$/
+    /\.netlify\.app$/,
+    /\.ggm\.kr$/
   ],
   credentials: true
 })
@@ -78,7 +80,7 @@ function hashPassword(password) {
 fastify.addHook('onRequest', async (request, reply) => {
   const publicRoutes = ['/health', '/api/auth/register', '/api/auth/login', '/api/auth/verify']
 
-  if (publicRoutes.includes(request.url) || request.url.startsWith('/api/email')) {
+  if (publicRoutes.includes(request.url) || request.url.startsWith('/api/email') || request.url.startsWith('/api/sports')) {
     return
   }
 
@@ -712,6 +714,84 @@ fastify.post('/api/email/extract-actions', async (request, reply) => {
 
 fastify.get('/health', async (request, reply) => {
   return { status: 'ok' }
+})
+
+const stadiumNames = {
+  '문학': '인천SSG랜더스필드',
+  '잠실': '잠실야구장',
+  '사직': '사직야구장',
+  '광주': '광주-기아 챔피언스 필드',
+  '고척': '고척스카이돔',
+  '대구': '대구삼성라이온즈파크',
+  '수원': '수원KT위즈파크',
+  '창원': '창원NC파크'
+}
+
+const teamSlugs = {
+  '두산': 'doosan',
+  'SSG': 'ssg',
+  'LG': 'lg',
+  '삼성': 'samsung',
+  '롯데': 'lotte',
+  '한화': 'hanwha',
+  'KIA': 'kia',
+  'KT': 'kt',
+  '키움': 'kiwoom',
+  'NC': 'nc'
+}
+
+function seoulDateString() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date())
+}
+
+function gameStatusLabel(status) {
+  return {
+    SCHEDULED: '경기 예정',
+    IN_PROGRESS: '경기 중',
+    FINISHED: '경기 종료',
+    CANCELED: '경기 취소'
+  }[status] || status
+}
+
+fastify.get('/api/sports/doosan', async (request, reply) => {
+  const date = typeof request.query?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(request.query.date)
+    ? request.query.date
+    : seoulDateString()
+
+  try {
+    const games = await getGame(new Date(`${date}T00:00:00+09:00`))
+    const doosanGames = (games || [])
+      .filter((game) => game.homeTeam === '두산' || game.awayTeam === '두산')
+      .map((game) => {
+        const opponent = game.homeTeam === '두산' ? game.awayTeam : game.homeTeam
+        const awayTeam = game.awayTeam === '두산' ? 'doosan' : teamSlugs[game.awayTeam]
+        const homeTeam = game.homeTeam === '두산' ? 'doosan' : teamSlugs[game.homeTeam]
+        return {
+          id: game.id,
+          date,
+          startTime: game.startTime,
+          stadium: stadiumNames[game.stadium] || game.stadium,
+          homeTeam: game.homeTeam,
+          awayTeam: game.awayTeam,
+          opponent,
+          status: game.status,
+          statusLabel: gameStatusLabel(game.status),
+          score: game.score,
+          currentInning: game.currentInning,
+          detailUrl: `https://yagu.today/matches/${date}/${awayTeam}-at-${homeTeam}`
+        }
+      })
+
+    return reply.send({ date, team: '두산', games: doosanGames, updatedAt: new Date().toISOString() })
+  } catch (error) {
+    request.log.error({ err: error }, 'Error fetching Doosan game')
+    return reply.code(503).send({ error: '경기 정보를 잠시 불러오지 못했습니다.' })
+  }
 })
 
 const start = async () => {

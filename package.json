@@ -9,8 +9,9 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
-    "fastify": "^4.25.2",
     "@fastify/cors": "^8.5.0",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "fastify": "^4.25.2",
+    "kbo-game": "^0.0.2"
   }
 }
