@@ -727,6 +727,10 @@ const stadiumNames = {
   '창원': '창원NC파크'
 }
 
+const stadiumCoordinates = {
+  '문학': { latitude: 37.4371, longitude: 126.6932 }
+}
+
 const teamSlugs = {
   '두산': 'doosan',
   'SSG': 'ssg',
@@ -758,6 +762,78 @@ function gameStatusLabel(status) {
   }[status] || status
 }
 
+function addDays(dateString, amount) {
+  const date = new Date(`${dateString}T00:00:00+09:00`)
+  date.setDate(date.getDate() + amount)
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(date)
+}
+
+function signedValue(value, digits = 1, suffix = '') {
+  if (value === null || value === undefined || Number.isNaN(value)) return null
+  const rounded = Number(value.toFixed(digits))
+  return `${rounded >= 0 ? '+' : ''}${rounded.toFixed(digits)}${suffix}`
+}
+
+function weatherLabel(code) {
+  if (code === 0) return '맑음'
+  if ([1, 2, 3].includes(code)) return '구름 많음'
+  if ([45, 48].includes(code)) return '안개'
+  if ([51, 53, 55, 56, 57].includes(code)) return '이슬비'
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return '비'
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return '눈'
+  if ([95, 96, 99].includes(code)) return '뇌우'
+  return '알 수 없음'
+}
+
+async function fetchStadiumWeather(date, startTime, stadium) {
+  const coordinates = stadiumCoordinates[stadium]
+  if (!coordinates) return null
+
+  const previousDate = addDays(date, -1)
+  const params = new URLSearchParams({
+    latitude: coordinates.latitude,
+    longitude: coordinates.longitude,
+    hourly: 'temperature_2m,relative_humidity_2m,precipitation_probability,wind_speed_10m,weather_code',
+    daily: 'temperature_2m_max,temperature_2m_min',
+    timezone: 'Asia/Seoul',
+    start_date: previousDate,
+    end_date: date
+  })
+  const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`)
+  if (!response.ok) throw new Error(`Weather API error: ${response.status}`)
+  const data = await response.json()
+  const time = `${date}T${startTime}:00`
+  const previousTime = `${previousDate}T${startTime}:00`
+  const currentIndex = data.hourly?.time?.indexOf(time)
+  const previousIndex = data.hourly?.time?.indexOf(previousTime)
+  const dailyIndex = data.daily?.time?.indexOf(date)
+  const previousDailyIndex = data.daily?.time?.indexOf(previousDate)
+
+  if (currentIndex < 0 || dailyIndex < 0) return null
+  const temperature = data.hourly.temperature_2m[currentIndex]
+  const previousTemperature = previousIndex >= 0 ? data.hourly.temperature_2m[previousIndex] : null
+  const wind = data.hourly.wind_speed_10m[currentIndex]
+  const previousWind = previousIndex >= 0 ? data.hourly.wind_speed_10m[previousIndex] : null
+  const maximum = data.daily.temperature_2m_max[dailyIndex]
+  const minimum = data.daily.temperature_2m_min[dailyIndex]
+  const previousMaximum = previousDailyIndex >= 0 ? data.daily.temperature_2m_max[previousDailyIndex] : null
+
+  return {
+    temperature: Math.round(temperature),
+    temperatureChange: previousTemperature === null ? null : signedValue(temperature - previousTemperature, 1, '°'),
+    maximum: Math.round(maximum),
+    minimum: Math.round(minimum),
+    maximumChange: previousMaximum === null ? null : signedValue(maximum - previousMaximum, 1, '°'),
+    humidity: Math.round(data.hourly.relative_humidity_2m[currentIndex]),
+    precipitationProbability: Math.round(data.hourly.precipitation_probability[currentIndex]),
+    sky: weatherLabel(data.hourly.weather_code[currentIndex]),
+    wind: Number(wind).toFixed(1),
+    windChange: previousWind === null ? null : signedValue(wind - previousWind, 1, 'm/s')
+  }
+}
+
 fastify.get('/api/sports/doosan', async (request, reply) => {
   const date = typeof request.query?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(request.query.date)
     ? request.query.date
@@ -783,9 +859,19 @@ fastify.get('/api/sports/doosan', async (request, reply) => {
           statusLabel: gameStatusLabel(game.status),
           score: game.score,
           currentInning: game.currentInning,
+          weather: null,
           detailUrl: `https://yagu.today/matches/${date}/${awayTeam}-at-${homeTeam}`
         }
       })
+
+    for (const game of doosanGames) {
+      const sourceGame = (games || []).find((item) => item.id === game.id)
+      try {
+        game.weather = await fetchStadiumWeather(date, game.startTime, sourceGame?.stadium)
+      } catch (weatherError) {
+        request.log.warn({ err: weatherError }, 'Weather data unavailable')
+      }
+    }
 
     return reply.send({ date, team: '두산', games: doosanGames, updatedAt: new Date().toISOString() })
   } catch (error) {
