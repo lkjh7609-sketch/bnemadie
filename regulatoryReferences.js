@@ -36,7 +36,7 @@ export const regulatoryReferences = [
     agency: '법제처',
     title: '국가법령정보 용어 참고',
     description: '선택한 법령의 공식 명칭과 조문 표현을 우선하는 모드입니다.',
-    sourceUrl: 'https://www.law.go.kr/',
+    sourceUrl: 'https://open.law.go.kr/LSO/openApi/openApiManual.do',
     version: '법제처 국가법령정보 공동활용 API',
     terms: []
   }
